@@ -30,12 +30,21 @@ export const api = {
   deleteEventType: (id: number) =>
     request(`/api/event-types/${id}`, { method: "DELETE" }),
 
-  // Availability
+  // Availability (multiple schedules + overrides)
   getAvailability: () => request("/api/availability"),
-  saveAvailability: (rules: any[]) =>
+  saveAvailability: (payload: any) =>
     request("/api/availability", {
       method: "POST",
-      body: JSON.stringify({ rules }),
+      body: JSON.stringify(payload),
+    }),
+  createSchedule: (body: any) =>
+    request("/api/availability/schedules", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  deleteSchedule: (id: number) =>
+    request(`/api/availability/schedules/${id}`, {
+      method: "DELETE",
     }),
 
   // Bookings dashboard

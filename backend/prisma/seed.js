@@ -38,15 +38,24 @@ async function main() {
     },
   });
 
-  // Weekday availability 9-5
-  const existingRules = await prisma.availabilityRule.findMany({
+  // Default weekly availability schedule with weekday 9–5
+  let schedule = await prisma.availabilitySchedule.findFirst({
     where: { userId: user.id },
   });
-  if (existingRules.length === 0) {
+
+  if (!schedule) {
+    schedule = await prisma.availabilitySchedule.create({
+      data: {
+        userId: user.id,
+        name: "Default schedule",
+        isDefault: true,
+      },
+    });
+
     const rules = [];
     for (let day = 1; day <= 5; day++) {
       rules.push({
-        userId: user.id,
+        scheduleId: schedule.id,
         dayOfWeek: day,
         startTime: "09:00",
         endTime: "17:00",

@@ -81,14 +81,56 @@ app.delete("/api/event-types/:id", async (req, res) => {
   }
 });
 
-// Availability
+// Availability: multiple schedules + overrides
 app.get("/api/availability", async (req, res) => {
   try {
-    const rules = await prisma.availabilityRule.findMany({
-      where: { userId: DEFAULT_USER_ID },
-      orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
+    const user = await prisma.user.findUnique({
+      where: { id: DEFAULT_USER_ID },
     });
-    res.json(rules);
+
+    let schedules = await prisma.availabilitySchedule.findMany({
+      where: { userId: DEFAULT_USER_ID },
+      orderBy: { id: "asc" },
+    });
+
+    let active =
+      schedules.find((s) => s.isDefault) || schedules[0] || null;
+
+    // If no schedules exist yet, create a default one without rules.
+    if (!active) {
+      active = await prisma.availabilitySchedule.create({
+        data: {
+          userId: DEFAULT_USER_ID,
+          name: "Working hours",
+          isDefault: true,
+        },
+      });
+      // Ensure the newly created schedule is included in the list we return
+      schedules = [active];
+    }
+
+    const [rules, overrides] = await Promise.all([
+      prisma.availabilityRule.findMany({
+        where: { scheduleId: active.id },
+        orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
+      }),
+      prisma.dateOverride.findMany({
+        where: { scheduleId: active.id },
+        orderBy: { date: "asc" },
+      }),
+    ]);
+
+    res.json({
+      timezone: user?.timezone || "UTC",
+      schedules: schedules.map((s) => ({
+        id: s.id,
+        name: s.name,
+        isDefault: s.isDefault,
+      })),
+      activeScheduleId: active.id,
+      rules,
+      overrides,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Failed to fetch availability" });
@@ -96,30 +138,212 @@ app.get("/api/availability", async (req, res) => {
 });
 
 app.post("/api/availability", async (req, res) => {
-  const { rules } = req.body;
+  const { scheduleId, name, setDefault, rules, overrides } = req.body;
   if (!Array.isArray(rules)) {
-    return res.status(400).json({ message: "Rules must be an array" });
+    return res.status(400).json({ message: "rules must be an array" });
   }
+  if (!Array.isArray(overrides)) {
+    return res.status(400).json({ message: "overrides must be an array" });
+  }
+
   try {
+    let schedule = null;
+
+    if (scheduleId) {
+      schedule = await prisma.availabilitySchedule.update({
+        where: { id: scheduleId },
+        data: {
+          name: name || undefined,
+          isDefault: setDefault === true ? true : undefined,
+        },
+      });
+    } else {
+      schedule = await prisma.availabilitySchedule.create({
+        data: {
+          userId: DEFAULT_USER_ID,
+          name: name || "New schedule",
+          isDefault: true,
+        },
+      });
+    }
+
+    if (setDefault === true) {
+      await prisma.availabilitySchedule.updateMany({
+        where: {
+          userId: DEFAULT_USER_ID,
+          id: { not: schedule.id },
+          isDefault: true,
+        },
+        data: { isDefault: false },
+      });
+    }
+
     await prisma.$transaction([
-      prisma.availabilityRule.deleteMany({ where: { userId: DEFAULT_USER_ID } }),
+      prisma.availabilityRule.deleteMany({
+        where: { scheduleId: schedule.id },
+      }),
+      prisma.dateOverride.deleteMany({
+        where: { scheduleId: schedule.id },
+      }),
       prisma.availabilityRule.createMany({
         data: rules.map((r) => ({
-          userId: DEFAULT_USER_ID,
+          scheduleId: schedule.id,
           dayOfWeek: r.dayOfWeek,
           startTime: r.startTime,
           endTime: r.endTime,
         })),
       }),
+      prisma.dateOverride.createMany({
+        data: overrides.map((o) => ({
+          scheduleId: schedule.id,
+          date: new Date(`${o.date}T00:00:00.000Z`),
+          isBlocked: o.isBlocked,
+          startTime: o.startTime || null,
+          endTime: o.endTime || null,
+        })),
+      }),
     ]);
-    const updated = await prisma.availabilityRule.findMany({
-      where: { userId: DEFAULT_USER_ID },
-      orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
+
+    const [updatedRules, updatedOverrides] = await Promise.all([
+      prisma.availabilityRule.findMany({
+        where: { scheduleId: schedule.id },
+        orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
+      }),
+      prisma.dateOverride.findMany({
+        where: { scheduleId: schedule.id },
+        orderBy: { date: "asc" },
+      }),
+    ]);
+
+    res.json({
+      scheduleId: schedule.id,
+      rules: updatedRules,
+      overrides: updatedOverrides,
     });
-    res.json(updated);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Failed to update availability" });
+  }
+});
+
+// Create / duplicate schedules
+app.post("/api/availability/schedules", async (req, res) => {
+  const { name, cloneFromId, setDefault } = req.body;
+
+  try {
+    const schedule = await prisma.availabilitySchedule.create({
+      data: {
+        userId: DEFAULT_USER_ID,
+        name: name || "Working hours",
+        isDefault: !!setDefault,
+      },
+    });
+
+    if (setDefault) {
+      await prisma.availabilitySchedule.updateMany({
+        where: {
+          userId: DEFAULT_USER_ID,
+          id: { not: schedule.id },
+          isDefault: true,
+        },
+        data: { isDefault: false },
+      });
+    }
+
+    if (cloneFromId) {
+      const [rules, overrides] = await Promise.all([
+        prisma.availabilityRule.findMany({
+          where: { scheduleId: cloneFromId },
+        }),
+        prisma.dateOverride.findMany({
+          where: { scheduleId: cloneFromId },
+        }),
+      ]);
+
+      await prisma.$transaction([
+        prisma.availabilityRule.createMany({
+          data: rules.map((r) => ({
+            scheduleId: schedule.id,
+            dayOfWeek: r.dayOfWeek,
+            startTime: r.startTime,
+            endTime: r.endTime,
+          })),
+        }),
+        prisma.dateOverride.createMany({
+          data: overrides.map((o) => ({
+            scheduleId: schedule.id,
+            date: o.date,
+            isBlocked: o.isBlocked,
+            startTime: o.startTime,
+            endTime: o.endTime,
+          })),
+        }),
+      ]);
+    }
+
+    const [newRules, newOverrides] = await Promise.all([
+      prisma.availabilityRule.findMany({
+        where: { scheduleId: schedule.id },
+        orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
+      }),
+      prisma.dateOverride.findMany({
+        where: { scheduleId: schedule.id },
+        orderBy: { date: "asc" },
+      }),
+    ]);
+
+    res.status(201).json({
+      schedule: {
+        id: schedule.id,
+        name: schedule.name,
+        isDefault: schedule.isDefault,
+      },
+      rules: newRules,
+      overrides: newOverrides,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to create schedule" });
+  }
+});
+
+// Delete schedule
+app.delete("/api/availability/schedules/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  try {
+    const schedules = await prisma.availabilitySchedule.findMany({
+      where: { userId: DEFAULT_USER_ID },
+    });
+
+    if (schedules.length <= 1) {
+      return res
+        .status(400)
+        .json({ message: "At least one schedule is required" });
+    }
+
+    const toDelete = schedules.find((s) => s.id === id);
+    if (!toDelete) {
+      return res.status(404).json({ message: "Schedule not found" });
+    }
+
+    await prisma.availabilitySchedule.delete({ where: { id } });
+
+    // Ensure there is still a default schedule
+    const remaining = await prisma.availabilitySchedule.findMany({
+      where: { userId: DEFAULT_USER_ID },
+    });
+    const hasDefault = remaining.some((s) => s.isDefault);
+    if (!hasDefault && remaining[0]) {
+      await prisma.availabilitySchedule.update({
+        where: { id: remaining[0].id },
+        data: { isDefault: true },
+      });
+    }
+
+    res.status(204).send();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to delete schedule" });
   }
 });
 
@@ -194,19 +418,53 @@ app.get("/api/public/event-types/:slug/slots", async (req, res) => {
     });
     if (!eventType) return res.status(404).json({ message: "Event type not found" });
 
-    const rules = await prisma.availabilityRule.findMany({
+    const schedules = await prisma.availabilitySchedule.findMany({
       where: { userId: eventType.userId },
     });
+
+    const activeSchedule =
+      schedules.find((s) => s.isDefault) || schedules[0];
+    if (!activeSchedule) return res.json([]);
+
+    const [rules, overrides] = await Promise.all([
+      prisma.availabilityRule.findMany({
+        where: { scheduleId: activeSchedule.id },
+      }),
+      prisma.dateOverride.findMany({
+        where: {
+          scheduleId: activeSchedule.id,
+          date: {
+            equals: new Date(`${date}T00:00:00.000Z`),
+          },
+        },
+      }),
+    ]);
 
     const targetDate = new Date(`${date}T00:00:00.000Z`);
     const zoned = utcToZonedTime(targetDate, timezone);
     const dayOfWeek = zoned.getDay();
 
     const dayRules = rules.filter((r) => r.dayOfWeek === dayOfWeek);
-    if (dayRules.length === 0) return res.json([]);
+    const override = overrides[0] || null;
+
+    if (override && override.isBlocked) {
+      return res.json([]);
+    }
+
+    let windows = dayRules;
+
+    if (override && override.startTime && override.endTime) {
+      windows = [
+        {
+          startTime: override.startTime,
+          endTime: override.endTime,
+        },
+      ];
+    }
+    if (!windows.length) return res.json([]);
 
     const slots = [];
-    for (const rule of dayRules) {
+    for (const rule of windows) {
       const [startH, startM] = rule.startTime.split(":").map(Number);
       const [endH, endM] = rule.endTime.split(":").map(Number);
 

@@ -17,8 +17,8 @@ model User {
   email     String @unique
   timezone  String @default("UTC")
 
-  eventTypes        EventType[]
-  availabilityRules AvailabilityRule[]
+  eventTypes           EventType[]
+  availabilitySchedules AvailabilitySchedule[]
 }
 
 model EventType {
@@ -35,13 +35,34 @@ model EventType {
   bookings Booking[]
 }
 
-model AvailabilityRule {
-  id        Int  @id @default(autoincrement())
+model AvailabilitySchedule {
+  id        Int      @id @default(autoincrement())
   userId    Int
-  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  dayOfWeek Int  // 0 = Sunday, 6 = Saturday
-  startTime String // stored as "HH:mm"
-  endTime   String // stored as "HH:mm"
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  isDefault Boolean  @default(false)
+
+  rules     AvailabilityRule[]
+  overrides DateOverride[]
+}
+
+model AvailabilityRule {
+  id          Int                 @id @default(autoincrement())
+  scheduleId  Int
+  schedule    AvailabilitySchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  dayOfWeek   Int                 // 0 = Sunday, 6 = Saturday
+  startTime   String              // stored as "HH:mm"
+  endTime     String              // stored as "HH:mm"
+}
+
+model DateOverride {
+  id         Int                 @id @default(autoincrement())
+  scheduleId Int
+  schedule   AvailabilitySchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  date       DateTime            // date at midnight UTC
+  isBlocked  Boolean             @default(false)
+  startTime  String?             // optional custom window
+  endTime    String?
 }
 
 model Booking {
