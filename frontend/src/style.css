@@ -530,6 +530,88 @@ textarea { resize: vertical; min-height: 80px; }
   letter-spacing: -0.01em;
 }
 
+/* Event row ⋯ menu (Cal.com-style) */
+.et-menu-anchor {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.et-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 200px;
+  padding: 6px;
+  background: #161616;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  z-index: 50;
+}
+
+.et-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 400;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  letter-spacing: -0.01em;
+  transition: background 120ms, color 120ms;
+}
+
+.et-dropdown-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.et-dropdown-item svg {
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+
+.et-dropdown-item:hover svg {
+  opacity: 1;
+}
+
+.et-dropdown-item.danger {
+  color: #f87171;
+}
+
+.et-dropdown-item.danger:hover {
+  background: rgba(248, 113, 113, 0.08);
+  color: #fca5a5;
+}
+
+.et-dropdown-divider {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--border-subtle);
+}
+
+/* Embed snippet modal (reuse modal-overlay) */
+.embed-modal-code {
+  width: 100%;
+  min-height: 100px;
+  padding: 12px 14px;
+  font-size: 12px;
+  font-family: ui-monospace, monospace;
+  color: var(--text-secondary);
+  background: var(--bg-input);
+  border: 1px solid var(--border-input);
+  border-radius: 8px;
+  resize: vertical;
+  margin-bottom: 12px;
+}
+
 /* ══════════════════════════════════════
    MODAL
 ══════════════════════════════════════ */

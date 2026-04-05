@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 
 type EventType = {
@@ -58,6 +58,74 @@ const IconItalic = () => (
     <path d="M7 2h5M4 14h5M9 2L7 14" />
   </svg>
 );
+
+const IconPencilMenu = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 2l3 3-8 8H3v-3L11 2z" />
+  </svg>
+);
+
+const IconDuplicate = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="5" y="5" width="9" height="9" rx="1.5" />
+    <path d="M3 11V3a1 1 0 011-1h8" />
+  </svg>
+);
+
+const IconEmbed = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M5 5l-3 3 3 3M11 5l3 3-3 3" />
+  </svg>
+);
+
+const IconTrashMenu = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 4h10M6 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M6 7v5M10 7v5" />
+    <rect x="2" y="4" width="12" height="10" rx="1.5" />
+  </svg>
+);
+
+function EmbedModal({ slug, title, onClose }: { slug: string; title: string; onClose: () => void }) {
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const bookUrl = `${origin}/book/${slug}`;
+  const snippet = `<iframe src="${bookUrl}" width="100%" height="600" frameborder="0" title="${title.replace(/"/g, "&quot;")}"></iframe>`;
+  const [copied, setCopied] = useState(false);
+
+  const onBackdrop = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget) onClose();
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onBackdrop}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-body">
+          <div className="modal-title">Embed</div>
+          <div className="modal-subtitle">
+            Paste this iframe on your site to let visitors book without leaving the page.
+          </div>
+          <textarea className="embed-modal-code" readOnly value={snippet} rows={4} />
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => {
+              void navigator.clipboard.writeText(snippet).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              });
+            }}
+          >
+            {copied ? "Copied" : "Copy code"}
+          </button>
+        </div>
+        <div className="modal-footer">
+          <button type="button" className="btn-ghost" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Modal ──────────────────────────────────────────────────────────
 function NewEventModal({
@@ -211,6 +279,20 @@ export function EventTypesPage() {
   const [editingEvent, setEditingEvent] = useState<EventType | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [openMenuId, setOpenMenuId] = useState<number | null>(null);
+  const [embedFor, setEmbedFor] = useState<EventType | null>(null);
+  const menuAnchorRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (openMenuId === null) return;
+    const close = (e: MouseEvent) => {
+      const el = e.target as Node;
+      if (menuAnchorRef.current?.contains(el)) return;
+      setOpenMenuId(null);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [openMenuId]);
 
   async function load() {
     setLoading(true);
@@ -233,6 +315,21 @@ export function EventTypesPage() {
     await load();
   };
 
+  const duplicateEvent = async (et: EventType) => {
+    const unique = `${et.slug}-copy-${Date.now().toString(36)}`;
+    try {
+      await api.createEventType({
+        title: `${et.title} (copy)`,
+        description: et.description ?? "",
+        duration: et.duration,
+        slug: unique.slice(0, 80),
+      });
+      await load();
+    } catch (e: any) {
+      setError(e.message || "Could not duplicate");
+    }
+  };
+
   const toggleEnabled = (id: number) => {
     setEventTypes((prev) =>
       prev.map((et) => (et.id === id ? { ...et, enabled: !et.enabled } : et))
@@ -251,6 +348,13 @@ export function EventTypesPage() {
           editingEvent={editingEvent}
           onClose={() => { setShowModal(false); setEditingEvent(null); }}
           onCreated={() => { setShowModal(false); setEditingEvent(null); load(); }}
+        />
+      )}
+      {embedFor && (
+        <EmbedModal
+          slug={embedFor.slug}
+          title={embedFor.title}
+          onClose={() => setEmbedFor(null)}
         />
       )}
 
@@ -368,13 +472,77 @@ export function EventTypesPage() {
                     <IconLink />
                   </button>
 
-                  <button
-                    className="action-btn"
-                    title="More options"
-                    onClick={() => { setEditingEvent(et); setShowModal(true); }}
+                  <div
+                    className="et-menu-anchor"
+                    ref={openMenuId === et.id ? menuAnchorRef : undefined}
                   >
-                    <IconDots />
-                  </button>
+                    <button
+                      type="button"
+                      className="action-btn"
+                      title="More options"
+                      aria-expanded={openMenuId === et.id}
+                      aria-haspopup="menu"
+                      onClick={() =>
+                        setOpenMenuId((id) => (id === et.id ? null : et.id))
+                      }
+                    >
+                      <IconDots />
+                    </button>
+                    {openMenuId === et.id && (
+                      <div className="et-dropdown" role="menu">
+                        <button
+                          type="button"
+                          className="et-dropdown-item"
+                          role="menuitem"
+                          onClick={() => {
+                            setOpenMenuId(null);
+                            setEditingEvent(et);
+                            setShowModal(true);
+                          }}
+                        >
+                          <IconPencilMenu />
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="et-dropdown-item"
+                          role="menuitem"
+                          onClick={() => {
+                            setOpenMenuId(null);
+                            void duplicateEvent(et);
+                          }}
+                        >
+                          <IconDuplicate />
+                          Duplicate
+                        </button>
+                        <button
+                          type="button"
+                          className="et-dropdown-item"
+                          role="menuitem"
+                          onClick={() => {
+                            setOpenMenuId(null);
+                            setEmbedFor(et);
+                          }}
+                        >
+                          <IconEmbed />
+                          Embed
+                        </button>
+                        <div className="et-dropdown-divider" />
+                        <button
+                          type="button"
+                          className="et-dropdown-item danger"
+                          role="menuitem"
+                          onClick={() => {
+                            setOpenMenuId(null);
+                            void onDelete(et.id);
+                          }}
+                        >
+                          <IconTrashMenu />
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
