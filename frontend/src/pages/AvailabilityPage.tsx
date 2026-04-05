@@ -16,16 +16,16 @@ type Schedule = {
 
 type Override = {
   id?: number;
-  date: string; // YYYY-MM-DD
+  date: string; // YYYY-MM-DD 
   isBlocked: boolean;
   startTime?: string;
   endTime?: string;
 };
 
 const days = [
-  "Sunday",
+  "Sunday", 
   "Monday",
-  "Tuesday",
+  "Tuesday",        
   "Wednesday",
   "Thursday",
   "Friday",
