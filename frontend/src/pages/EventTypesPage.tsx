@@ -311,8 +311,21 @@ export function EventTypesPage() {
 
   const onDelete = async (id: number) => {
     if (!confirm("Delete this event type?")) return;
-    await api.deleteEventType(id);
-    await load();
+
+    setError(null);
+    const previous = eventTypes;
+    setEventTypes((prev) => prev.filter((et) => et.id !== id));
+
+    try {
+      await api.deleteEventType(id);
+    } catch (e: any) {
+      setEventTypes(previous);
+      setError(e.message || "Failed to delete event type");
+      return;
+    }
+
+    // Re-sync in background (keeps UI fast even if DB is slow)
+    void load();
   };
 
   const duplicateEvent = async (et: EventType) => {
